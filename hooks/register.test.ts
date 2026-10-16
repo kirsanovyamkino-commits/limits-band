@@ -1,5 +1,5 @@
 import { test, expect } from 'claude-code/testing'
-import { label, line, tokens, untilReset } from './register'
+import { label, level, line, tokens, untilReset } from './register'
 
 const now = Date.parse('2026-10-17T10:00:00Z')
 
@@ -31,4 +31,10 @@ test('строка полосы', () => {
     '5 ч: 42% (сброс через 1 ч 0 мин) · Контекст: 76 тыс. из 200 тыс., осталось 124 тыс. · За сеанс: 1,3 млн токенов',
   )
   expect(line({ limits: [], contextTokens: null, contextWindow: 200_000 }, 0, now)).toBe('Лимиты: данных пока нет')
+})
+
+test('цвет по заполнению', () => {
+  expect(level(30)).toBe('ok')
+  expect(level(60)).toBe('warn')
+  expect(level(90)).toBe('high')
 })
