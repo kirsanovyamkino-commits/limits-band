@@ -1,1 +1,1 @@
-{ "name": "limits-band", "version": "0.1.0", "description": "Полоса над полем ввода: лимиты 5 часов и недели, заполнение контекста", "types": "./types/index.d.ts" }
+{ "name": "limits-band", "version": "0.3.0", "description": "Полоса над полем ввода: лимиты 5 часов и недели, токены контекста и сеанса", "types": "./types/index.d.ts" }
