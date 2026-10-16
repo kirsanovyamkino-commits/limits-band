@@ -13,7 +13,12 @@ const NAMES: Record<string, string> = {
   spend_limit: 'Бюджет',
 }
 
+export type Level = 'ok' | 'warn' | 'high' | 'info'
+export type Segment = { label: string; value: string; note: string; level: Level }
+
 export const label = (kind: string): string => NAMES[kind] ?? kind
+
+export const level = (percent: number): Level => (percent >= 85 ? 'high' : percent >= 60 ? 'warn' : 'ok')
 
 export const tokens = (n: number): string => {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace('.', ',').replace(',0', '')} млн`
@@ -34,18 +39,38 @@ export const untilReset = (resetsAt: string | undefined, now: number): string =>
   return `сброс через ${m} мин`
 }
 
-export const line = (s: Snapshot, sessionTokens: number, now: number): string => {
-  const parts = (s.limits ?? []).map((l: Limit) => {
-    const reset = untilReset(l.resetsAt, now)
-    return `${label(l.kind)}: ${l.percentUsed}%${reset ? ` (${reset})` : ''}`
-  })
+export const segments = (s: Snapshot, sessionTokens: number, now: number): Segment[] => {
+  const out: Segment[] = (s.limits ?? []).map((l: Limit) => ({
+    label: label(l.kind),
+    value: `${l.percentUsed}%`,
+    note: untilReset(l.resetsAt, now),
+    level: level(l.percentUsed),
+  }))
   if (typeof s.contextTokens === 'number' && s.contextWindow > 0) {
     const left = Math.max(0, s.contextWindow - s.contextTokens)
-    parts.push(`Контекст: ${tokens(s.contextTokens)} из ${tokens(s.contextWindow)}, осталось ${tokens(left)}`)
+    out.push({
+      label: 'Контекст',
+      value: `${tokens(s.contextTokens)} из ${tokens(s.contextWindow)}`,
+      note: `осталось ${tokens(left)}`,
+      level: level((s.contextTokens / s.contextWindow) * 100),
+    })
   }
-  if (sessionTokens > 0) parts.push(`За сеанс: ${tokens(sessionTokens)} токенов`)
+  if (sessionTokens > 0) {
+    out.push({ label: 'За сеанс', value: `${tokens(sessionTokens)} токенов`, note: '', level: 'info' })
+  }
+  return out
+}
+
+export const line = (s: Snapshot, sessionTokens: number, now: number): string => {
+  const parts = segments(s, sessionTokens, now).map(g =>
+    g.label === 'Контекст' || g.label === 'За сеанс'
+      ? `${g.label}: ${g.value}${g.note ? `, ${g.note}` : ''}`
+      : `${g.label}: ${g.value}${g.note ? ` (${g.note})` : ''}`,
+  )
   return parts.length ? parts.join(' · ') : 'Лимиты: данных пока нет'
 }
+
+const COLOR: Record<Level, string> = { ok: 'success', warn: 'warning', high: 'error', info: 'suggestion' }
 
 type Ctx = { tokens?: number; window: number }
 
@@ -86,11 +111,29 @@ export const register: Register = on => {
 
     const { Box, Button, Text } = $.ui.resolve(e)
     const now = await $.clock.now()
-    const sessionTokens = await read($, spent)
+    const segs = segments(s, await read($, spent), now)
 
     return (
-      <Box>
-        <Text dimColor>{line(s, sessionTokens, now)} </Text>
+      <Box
+        flexDirection="row"
+        flexWrap="wrap"
+        alignItems="center"
+        columnGap={2}
+        borderStyle="round"
+        borderColor="subtle"
+        paddingX={1}
+      >
+        {segs.length === 0 ? (
+          <Text color="subtle">Лимиты: данных пока нет</Text>
+        ) : (
+          segs.map((g, i) => (
+            <Box key={`seg-${i}`} flexDirection="row" columnGap={1}>
+              <Text color="subtle" size="footnote">{g.label}</Text>
+              <Text color={COLOR[g.level]} weight="semibold" tabular>{g.value}</Text>
+              {g.note ? <Text color="inactive" size="footnote">{g.note}</Text> : null}
+            </Box>
+          ))
+        )}
         <Button key="hide" label="Скрыть" onPress={() => update($, isHidden, () => true)} />
       </Box>
     )
