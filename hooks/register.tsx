@@ -4,6 +4,7 @@ import type { Register } from 'claude-code'
 import type { Limit, Snapshot } from '../types'
 
 const snap = atom({ plugin: 'limits-band', key: 'snap' } as const, null)
+const spent = atom({ plugin: 'limits-band', key: 'spent' } as const, 0)
 const isHidden = atom({ plugin: 'limits-band', key: 'isHidden' } as const, false)
 
 const NAMES: Record<string, string> = {
@@ -13,6 +14,12 @@ const NAMES: Record<string, string> = {
 }
 
 export const label = (kind: string): string => NAMES[kind] ?? kind
+
+export const tokens = (n: number): string => {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace('.', ',').replace(',0', '')} млн`
+  if (n >= 1000) return `${Math.round(n / 1000)} тыс.`
+  return String(n)
+}
 
 export const untilReset = (resetsAt: string | undefined, now: number): string => {
   if (!resetsAt) return ''
@@ -27,33 +34,50 @@ export const untilReset = (resetsAt: string | undefined, now: number): string =>
   return `сброс через ${m} мин`
 }
 
-export const line = (s: Snapshot, now: number): string => {
-  const parts = s.limits.map((l: Limit) => {
+export const line = (s: Snapshot, sessionTokens: number, now: number): string => {
+  const parts = (s.limits ?? []).map((l: Limit) => {
     const reset = untilReset(l.resetsAt, now)
     return `${label(l.kind)}: ${l.percentUsed}%${reset ? ` (${reset})` : ''}`
   })
-  if (s.contextPercent !== null) parts.push(`Контекст: ${Math.round(s.contextPercent)}%`)
+  if (typeof s.contextTokens === 'number' && s.contextWindow > 0) {
+    const left = Math.max(0, s.contextWindow - s.contextTokens)
+    parts.push(`Контекст: ${tokens(s.contextTokens)} из ${tokens(s.contextWindow)}, осталось ${tokens(left)}`)
+  }
+  if (sessionTokens > 0) parts.push(`За сеанс: ${tokens(sessionTokens)} токенов`)
   return parts.length ? parts.join(' · ') : 'Лимиты: данных пока нет'
 }
 
-const toSnap = (rateLimits: readonly Limit[], percent: number | undefined): Snapshot => ({
+type Ctx = { tokens?: number; window: number }
+
+const toSnap = (rateLimits: readonly Limit[], ctx: Ctx): Snapshot => ({
   limits: rateLimits.map(l => ({ kind: l.kind, percentUsed: l.percentUsed, resetsAt: l.resetsAt })),
-  contextPercent: percent ?? null,
+  contextTokens: ctx.tokens ?? null,
+  contextWindow: ctx.window,
 })
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const result = await next(e)
     const u = await $.session.usage()
-    await update($, snap, () => toSnap(u.rateLimits, u.context.percent))
+    await update($, snap, () => toSnap(u.rateLimits, u.context))
     return result
   })
 
   on('session.measure', async ($, e, next) => {
-    await update($, snap, () => toSnap(e.rateLimits, e.context.percent))
+    await update($, snap, () => toSnap(e.rateLimits, e.context))
     const five = e.rateLimits.find(l => l.kind === 'five_hour')
     if (five && five.percentUsed >= 90) $.ui.toast(`Лимит 5 часов: ${five.percentUsed}%`)
     return next(e)
+  })
+
+  on('turn.complete', async ($, e, next) => {
+    const result = await next(e)
+    const u = result.usage
+    if (u) {
+      const n = u.input_tokens + u.output_tokens + u.cache_read_input_tokens + u.cache_creation_input_tokens
+      await update($, spent, total => total + n)
+    }
+    return result
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
@@ -62,10 +86,11 @@ export const register: Register = on => {
 
     const { Box, Button, Text } = $.ui.resolve(e)
     const now = await $.clock.now()
+    const sessionTokens = await read($, spent)
 
     return (
       <Box>
-        <Text dimColor>{line(s, now)} </Text>
+        <Text dimColor>{line(s, sessionTokens, now)} </Text>
         <Button key="hide" label="Скрыть" onPress={() => update($, isHidden, () => true)} />
       </Box>
     )
