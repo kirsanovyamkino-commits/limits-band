@@ -1,0 +1,5 @@
+{
+  "name": "limits-band",
+  "owner": { "name": "kirsanovyamkino-commits" },
+  "plugins": [{ "name": "limits-band", "source": "./" }]
+}
