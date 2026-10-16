@@ -1,5 +1,5 @@
 import { test, expect } from 'claude-code/testing'
-import { label, line, untilReset } from './register'
+import { label, line, tokens, untilReset } from './register'
 
 const now = Date.parse('2026-10-17T10:00:00Z')
 
@@ -14,8 +14,21 @@ test('время до сброса', () => {
   expect(untilReset(undefined, now)).toBe('')
 })
 
+test('формат токенов', () => {
+  expect(tokens(950)).toBe('950')
+  expect(tokens(76_400)).toBe('76 тыс.')
+  expect(tokens(1_000_000)).toBe('1 млн')
+  expect(tokens(1_250_000)).toBe('1,3 млн')
+})
+
 test('строка полосы', () => {
-  expect(line({ limits: [{ kind: 'five_hour', percentUsed: 42, resetsAt: '2026-10-17T11:00:00Z' }], contextPercent: 37.6 }, now))
-    .toBe('5 ч: 42% (сброс через 1 ч 0 мин) · Контекст: 38%')
-  expect(line({ limits: [], contextPercent: null }, now)).toBe('Лимиты: данных пока нет')
+  const s = {
+    limits: [{ kind: 'five_hour', percentUsed: 42, resetsAt: '2026-10-17T11:00:00Z' }],
+    contextTokens: 76_000,
+    contextWindow: 200_000,
+  }
+  expect(line(s, 1_250_000, now)).toBe(
+    '5 ч: 42% (сброс через 1 ч 0 мин) · Контекст: 76 тыс. из 200 тыс., осталось 124 тыс. · За сеанс: 1,3 млн токенов',
+  )
+  expect(line({ limits: [], contextTokens: null, contextWindow: 200_000 }, 0, now)).toBe('Лимиты: данных пока нет')
 })
