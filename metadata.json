@@ -1,0 +1,8 @@
+{
+  "name": "limits-band",
+  "description": "Полоса над полем ввода Claude Code: лимиты подписки (5 часов и неделя), токены контекста и сеанса",
+  "permissions": [],
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
